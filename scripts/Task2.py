@@ -76,76 +76,48 @@ class SMILESextra(torch.utils.data.Dataset):
         return smiles, label
     
 
-def LiSSA(model, dataloader, tokenizer, T, S1, S2, T1):
+
+
+def LiSSA(model, tokenizer, data_loader, vec, damp, repeat, depth, scale):
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    lr = 0.020104429120603076
 
     model.to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    vec = vec.to(device)
+    ihvp = torch.zeros_like(vec, device=device)
 
-    for param in model.parameters():
-        param.requires_grad = True
+    for r in range(repeat):
+        h_est = vec.clone()
 
-    # First Order Optimization warm-up
-    for _ in range(T1):
-        for smiles, label in dataloader:
+        for t, (smiles, label) in enumerate(data_loader):
+            if t >= depth:
+                break
+
             label = label.to(device).float()
-
-            # Tokenize input and move to device
             smiles_token = tokenizer(smiles, padding=True, truncation=True, return_tensors="pt")
             smiles_token = {k: v.to(device) for k, v in smiles_token.items()}
 
-            optimizer.zero_grad()
-            output = model(smiles_token)
-            loss = F.mse_loss(output.squeeze(), label)
-            loss.backward()
-            optimizer.step()
-    
-    influence_scores = {}
+            model.zero_grad()
 
-    # Main LiSSA loop
-    for t in range(T):
-        for smiles, label in dataloader:
-            label = label.to(device).float()
+            outputs = model(smiles_token)
+            loss = F.mse_loss(outputs, label)
+            grads = torch.autograd.grad(loss, model.parameters(), create_graph=True, allow_unused=True)
+            grads = [g if g is not None else torch.zeros_like(p, requires_grad=True) for g, p in zip(grads, model.parameters())]
 
-            # Tokenize input and move to device
-            smiles_token = tokenizer(smiles, padding=True, truncation=True, return_tensors="pt")
-            smiles_token = {k: v.to(device) for k, v in smiles_token.items()}
+            flat_grads = torch.cat([g.view(-1) for g in grads])
 
-            optimizer.zero_grad()
+            hvp = torch.autograd.grad(flat_grads, model.parameters(), grad_outputs=h_est, retain_graph=True, allow_unused=True)
+            hvp = [g if g is not None else torch.zeros_like(p, requires_grad=True) for g, p in zip(hvp, model.parameters())]
 
-            # Forward pass
-            output = model(smiles_token)
-            loss = F.mse_loss(output.squeeze(), label)
+            hvp = torch.cat([h.view(-1) for h in hvp])
 
-            # Compute first-order gradients
-            grad_f = torch.autograd.grad(loss, model.parameters(), create_graph=True, allow_unused=True)
-            grad_f = [g if g is not None else torch.zeros_like(p, requires_grad=True) for g, p in zip(grad_f, model.parameters())]
+            with torch.no_grad():
+                hvp = hvp + damp * h_est
+                h_est = vec + h_est - hvp / scale
 
-            X = []
-            for i in range(S1):
-                X_i = [g.clone().detach() for g in grad_f]
+        ihvp += h_est / scale
 
-                for j in range(S2):
-                    # Compute Hessian-vector product
-                    hvp_sample = torch.autograd.grad(
-                        outputs=grad_f,
-                        inputs=model.parameters(),
-                        grad_outputs=[torch.ones_like(g) for g in grad_f],
-                        retain_graph=True,
-                        allow_unused = True
-                    )
-
-   
-                    X_i = [g1 + (torch.eye(g2.shape[0]).to(device) - g2) * g3 
-                        for g1, g2, g3 in zip(grad_f, hvp_sample, X_i)]
-
-            
-            Xt = [sum(X_i[k] for X_i in X) / S1 for k in range(len(X[0]))]
-            influence_scores[(smiles, label)] = Xt
-
-    return influence_scores
-
+    return ihvp / repeat
 
 ########################################################
 # Entry point
@@ -166,9 +138,34 @@ if __name__ == "__main__":
     dataloader = torch.utils.data.DataLoader(dataset, batch_size = 16, shuffle = True)
 
 
-    influences = LiSSA(model, dataloader, tokenizer, 2, 2, 2, 2)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
 
-    print(influences)
+    # Generate vec from a test batch
+    smiles_batch, labels_batch = next(iter(dataloader))
+    labels_batch = labels_batch.to(device).float()
+    smiles_tokens = tokenizer(smiles_batch, padding=True, truncation=True, return_tensors="pt")
+    smiles_tokens = {k: v.to(device) for k, v in smiles_tokens.items()}
+
+    # Compute gradients to form vec
+    model.zero_grad()
+    outputs = model(smiles_tokens)
+    loss = F.mse_loss(outputs, labels_batch)
+    grads = torch.autograd.grad(loss, model.parameters(), allow_unused=True)
+    grads = [g if g is not None else torch.zeros_like(p, requires_grad=True) for g, p in zip(grads, model.parameters())]
+
+    vec = torch.cat([g.detach().view(-1) for g in grads])
+
+    # Run LiSSA algorithm
+    damp = 0.01  # Damping factor
+    repeat = 5   # Number of repeats
+    depth = 10   # Recurrence depth
+    scale = 10.0 # Scaling factor
+
+    result = LiSSA(model, tokenizer, dataloader, vec, damp, repeat, depth, scale)
+
+    # Print the result
+    print("Inverse Hessian-Vector Product (IHVP) result:", result)
 
 
 
