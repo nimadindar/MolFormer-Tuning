@@ -1,80 +1,17 @@
 # import dependencies
 import torch
-import torch
-import torch.nn as nn
-from transformers import AutoModel, AutoTokenizer, AutoModelForMaskedLM, DataCollatorForLanguageModeling
-
 import torch.nn.functional as F
-
-# import sklearn
-# import datasets
-# import numpy as np
 import torch.utils.data.dataloader
-# import transformers
-import pandas as pd
-# from tqdm import tqdm
+
 from transformers import AutoTokenizer
+from transformers import AutoTokenizer, AutoModelForMaskedLM
 
+from models import MoLFormerWithRegressionHeadMLM
 
+from utils import SMILESextra
 
 DATASET_PATH = "scikit-fingerprints/MoleculeNet_Lipophilicity"
 MODEL_NAME = "ibm/MoLFormer-XL-both-10pct"
-
-
-class MoLFormerWithRegressionHeadMLM(nn.Module):
-    def __init__(self, language_model):
-        super().__init__()
-
-        self.language_model = language_model
-        
-        for param in self.language_model.parameters():
-            param.requires_grad = True
-
-        self.layer = nn.Sequential(
-            # Layer 1
-            nn.Linear(768, 407),
-            nn.BatchNorm1d(407),
-            nn.ELU(),
-            nn.Dropout(0.3819889369374411),
-            # Layer 2
-            nn.Linear(407,427),
-            nn.BatchNorm1d(427),
-            nn.ELU(),
-            nn.Dropout(0.2777819584361112),
-            # Layer 3
-            nn.Linear(427,240),
-            nn.BatchNorm1d(240),
-            nn.ELU(),
-            nn.Dropout(0.4619253799146514),
-            # Layer 4
-            nn.Linear(240, 69),
-            nn.BatchNorm1d(69),
-            nn.ELU(),
-            nn.Dropout(0.4497051723910867),
-            nn.Linear(69,1)
-        )
-    
-    def forward(self, token):
-
-        smiles_output = self.language_model(**token, output_hidden_states=True)
-        smiles_embedding = smiles_output.hidden_states[-1][:, 0, :].float()
-        
-        return self.layer(smiles_embedding)
-
-class SMILESextra(torch.utils.data.Dataset):
-    def __init__(self, dataset_path):
-        self.dataset_path = dataset_path
-        self.data = pd.read_csv(self.dataset_path)
-
-    def __len__(self):
-        return len(self.data)
-    
-    def __getitem__(self, index):
-        smiles = self.data.iloc[index]['SMILES']
-        label = self.data.iloc[index]['Label']
-
-        return smiles, label
-    
 
 
 
