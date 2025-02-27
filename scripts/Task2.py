@@ -41,7 +41,7 @@ def LiSSA(model, tokenizer, data_loader, vec, damp, repeat, depth, scale):
             model.zero_grad()
 
             outputs = model(smiles_token).squeeze()
-            loss = F.mse_loss(outputs, label)
+            loss = F.mse_loss(outputs, label.squeeze())
 
             grads = torch.autograd.grad(loss, model.parameters(), create_graph=True, allow_unused=True)
             grads = [g if g is not None else torch.zeros_like(p, requires_grad=True) for g, p in zip(grads, model.parameters())]
@@ -77,7 +77,7 @@ def compute_influence(data_loader, tokenizer, model, damp, repeat, depth, scale)
 
         model.zero_grad()
         outputs = model(smiles_token).squeeze()
-        loss = F.mse_loss(outputs, label)
+        loss = F.mse_loss(outputs, label.squeeze())
 
         grads = torch.autograd.grad(loss, model.parameters(), retain_graph=False, allow_unused=True)
         grads = [g if g is not None else torch.zeros_like(p) for g, p in zip(grads, model.parameters())]
