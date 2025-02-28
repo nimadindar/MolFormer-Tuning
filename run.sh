@@ -15,4 +15,4 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 
 # Run your script
-python scripts/Taks2.py
+python ~/NNTI_project/scripts/Taks2.py
