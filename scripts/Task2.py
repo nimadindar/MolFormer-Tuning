@@ -3,7 +3,6 @@ import torch
 import torch.nn.functional as F
 import torch.utils.data.dataloader
 
-from transformers import AutoTokenizer
 from transformers import AutoTokenizer, AutoModelForMaskedLM
 
 from models import MoLFormerWithRegressionHeadMLM
@@ -11,6 +10,8 @@ from models import MoLFormerWithRegressionHeadMLM
 from utils import SMILESextra
 
 from tqdm import tqdm
+
+import pandas as pd
 
 # paths and global parameters 
 DATASET_PATH = "scikit-fingerprints/MoleculeNet_Lipophilicity"
@@ -67,9 +68,13 @@ def compute_influence(data_loader, tokenizer, model, damp, repeat, depth, scale)
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     model.to(device)
-    influence_scores = {}
+
+    extra_data = pd.read_csv(EXTERNAL_DATASET_PATH)
+    extra_data['influence_score'] = 0.0
 
     for smiles, label in tqdm(data_loader, desc="Computing Influence Scores"):
+
+        smiles = smiles[0]  
         
         label = label.to(device).float()
         smiles_token = tokenizer(smiles, padding=True, truncation=True, return_tensors="pt")
@@ -86,14 +91,11 @@ def compute_influence(data_loader, tokenizer, model, damp, repeat, depth, scale)
         ihvp = LiSSA(model, tokenizer, data_loader, flat_grads, damp, repeat, depth, scale)
 
         influence_score = -torch.dot(ihvp, flat_grads).item()
-        influence_scores[(smiles, label)] = influence_score
 
-    with open("Task2_influence_score.txt", "w") as file:
-        for key, value in influence_scores.items():
-            file.write(f"{key}:{value}")
-
-
-    return influence_scores
+        # Ensure correct string comparison
+        extra_data.loc[extra_data['SMILES'].astype(str) == str(smiles), 'influence_score'] = influence_score
+        
+    extra_data.to_csv("updated_data.csv", index=False)
 
 
 
@@ -115,13 +117,16 @@ if __name__ == "__main__":
     dataloader = torch.utils.data.DataLoader(dataset, batch_size = BATCH_SIZE , shuffle = True)
 
     # configurations for running the LiSSA for influence calculation
+    # damp = 0.01  
+    # repeat = 10   
+    # depth = 50   
+    # scale = 1 
+
     damp = 0.01  
-    repeat = 10   
-    depth = 50   
+    repeat = 1   
+    depth = 1   
     scale = 1 
 
     influence_scores = compute_influence(dataloader, tokenizer, model, damp, repeat, depth, scale)
-
-    print("Inverse Hessian-Vector Product (IHVP) result:", influence_scores)
 
 
