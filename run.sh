@@ -4,4 +4,4 @@ echo $HOSTNAME
 which python
 python -m pip list
 
-python FFN.py
+python scripts/Taks2.py
