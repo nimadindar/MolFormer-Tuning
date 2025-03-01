@@ -2,12 +2,15 @@
 import torch
 import torch.nn.functional as F
 import torch.utils.data.dataloader
+from torch.utils.data import random_split
 
 from transformers import AutoTokenizer, AutoModelForMaskedLM
 
+from datasets import load_dataset
+
 from models import MoLFormerWithRegressionHeadMLM
 
-from utils import SMILESextra
+from utils import SMILESextra, SMILESDataset, merge_datasets
 
 from tqdm import tqdm
 
@@ -99,34 +102,121 @@ def compute_influence(data_loader, tokenizer, model, damp, repeat, depth, scale)
 
 
 
+def train_model(train_dataloader, test_dataloader, num_epochs):
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
+
+    language_model = AutoModelForMaskedLM.from_pretrained(MODEL_NAME, trust_remote_code=True)
+    finetuned_language_model = torch.load("finetuned_language_model.pth", map_location="cpu")
+    model = MoLFormerWithRegressionHeadMLM(finetuned_language_model)
+    
+    lr = 0.020104429120603076
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+
+    epoch_losses = [] 
+    val_losses = []  
+
+    for epoch in range(num_epochs):
+        model.train()
+        epoch_loss = 0
+        progress_bar = tqdm(train_dataloader, desc= f"Epoch {epoch + 1}/{num_epochs}", leave=False)
+
+        for smile, label in progress_bar:
+
+            label = label.to(device).float()
+
+            smiles_token = tokenizer(smile, padding=True, truncation=True, return_tensors="pt")
+            smiles_token = {k: v.to(device) for k, v in smiles_token.items()}
+
+            optimizer.zero_grad()
+            output = model(smiles_token).squeeze()
+
+            loss = F.mse_loss(output, label)
+            loss.backward()
+            optimizer.step()
+
+            epoch_loss += loss.item()
+            progress_bar.set_postfix(loss = loss.item())
+
+        avg_epoch_loss = epoch_loss / len(train_dataloader)
+        epoch_losses.append(avg_epoch_loss)
+
+        model.eval()
+        val_loss = 0
+        with torch.no_grad():
+            for smile, label in test_dataloader:
+
+                label = label.to(device).float()
+
+                smiles_token = tokenizer(smile, padding=True, truncation=True, return_tensors="pt")
+                smiles_token = {k: v.to(device) for k, v in smiles_token.items()}
+
+                output = model(smiles_token).squeeze()
+
+                loss = F.mse_loss(output, label)
+                val_loss += loss.item()
+
+        avg_val_loss = val_loss / len(test_dataloader)
+        val_losses.append(avg_val_loss)
+
+        print(f"Epoch {epoch+1}/{num_epochs}, Train Loss: {avg_epoch_loss:.6f}, Validation Loss: {avg_val_loss:.6f}")
+
+    torch.save(model, "regression_head_w_exrta_data.pth")
+
 ########################################################
 # Entry point
 ########################################################
 
 if __name__ == "__main__":
 
-    # Loading tokenizer and required pretrained models from task 1
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
+    compute = False
 
-    language_model = AutoModelForMaskedLM.from_pretrained(MODEL_NAME, trust_remote_code=True)
-    finetuned_language_model = torch.load("finetuned_language_model.pth", map_location="cpu")
-    model = torch.load("regression_w_finetuning_wo_wdecay.pth", map_location="cpu")
+    if compute:
+        # Loading tokenizer and required pretrained models from task 1
+        tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
+
+        language_model = AutoModelForMaskedLM.from_pretrained(MODEL_NAME, trust_remote_code=True)
+        finetuned_language_model = torch.load("finetuned_language_model.pth", map_location="cpu")
+        model = torch.load("regression_w_finetuning_wo_wdecay.pth", map_location="cpu")
+        
+        # Loading the extra dataset for task 2 and passing to dataloader
+        dataset = SMILESextra(EXTERNAL_DATASET_PATH)
+        dataloader = torch.utils.data.DataLoader(dataset, batch_size = BATCH_SIZE , shuffle = True)
+
+        # configurations for running the LiSSA for influence calculation
+        # damp = 0.01  
+        # repeat = 10   
+        # depth = 50   
+        # scale = 1 
+
+        damp = 0.01  
+        repeat = 1   
+        depth = 1   
+        scale = 1 
+
+        influence_scores = compute_influence(dataloader, tokenizer, model, damp, repeat, depth, scale)
     
-    # Loading the extra dataset for task 2 and passing to dataloader
-    dataset = SMILESextra(EXTERNAL_DATASET_PATH)
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size = BATCH_SIZE , shuffle = True)
+    else:
+        filtered_dataset = "updated_data.csv"
+        DATASET_PATH = "scikit-fingerprints/MoleculeNet_Lipophilicity"
 
-    # configurations for running the LiSSA for influence calculation
-    # damp = 0.01  
-    # repeat = 10   
-    # depth = 50   
-    # scale = 1 
+        dataset = load_dataset(DATASET_PATH)
 
-    damp = 0.01  
-    repeat = 1   
-    depth = 1   
-    scale = 1 
+        dataset_main = SMILESDataset(dataset)
+        dataset_extra = SMILESextra(filtered_dataset)
 
-    influence_scores = compute_influence(dataloader, tokenizer, model, damp, repeat, depth, scale)
+        merged_dataset = merge_datasets(dataset_main, dataset_extra)
 
+        train_size = int(0.8 * len(merged_dataset))
+        test_size = len(merged_dataset) - train_size
+
+        train_smiles, test_smiles = random_split(merged_dataset, [train_size, test_size])
+
+        train_dataloader = torch.utils.data.DataLoader(train_smiles, batch_size=16, shuffle=True)
+        test_dataloader = torch.utils.data.DataLoader(test_smiles, batch_size=16, shuffle = True)
+
+        train_model(train_dataloader, test_dataloader, 25)
 

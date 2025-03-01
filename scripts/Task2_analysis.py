@@ -69,6 +69,3 @@ def plot_influence_scatter(influence_scores):
     plt.grid(True, linestyle='--', alpha=0.6)
 
     plt.show()
-
-
-filtered_dataset(extra_data)
