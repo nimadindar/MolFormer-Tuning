@@ -1,9 +1,10 @@
 from rdkit import Chem
 from rdkit.Chem import Descriptors
+
+import torch
 import torch.utils
 import torch.utils.data
 
-import torch
 
 
 def calculate_descriptions(smiles_batch):

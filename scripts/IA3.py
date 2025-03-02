@@ -40,6 +40,34 @@ class IA3MolFormer(nn.Module):
     def forward(self, token):
         return self.model(token)
 
+class IA3MolFormerMI(nn.Module):
+    def __init__(self, model):
+        super().__init__()
+
+        self.model = model
+
+        for param in self.model.language_model.parameters():
+            param.requires_grad = False
+        
+        self.modify_attention_layers()
+
+    def modify_attention_layers(self):
+
+        for layer in self.model.language_model.encoder.layer:
+            attn = layer.attention.self
+
+
+            attn.ia3_alpha_k = nn.Parameter(torch.ones(attn.key.out_features, 1)) 
+            attn.ia3_alpha_v = nn.Parameter(torch.ones(attn.value.out_features, 1))  
+
+            def modify_kv_projection(original_forward, alpha):
+                return lambda x: original_forward(x) * alpha.T 
+            
+            attn.key.forward = modify_kv_projection(attn.key.forward, attn.ia3_alpha_k)
+            attn.value.forward = modify_kv_projection(attn.value.forward, attn.ia3_alpha_v)
+
+    def forward(self, token, feature_vector):
+        return self.model(token, feature_vector)
 
 def train_model(train_dataloader, test_dataloader, num_epochs):
 

@@ -68,4 +68,6 @@ def plot_influence_scatter(influence_scores):
     plt.legend()
     plt.grid(True, linestyle='--', alpha=0.6)
 
+    plt.savefig("influence_scatter_plot.png", dpi=300, bbox_inches='tight')
+
     plt.show()
