@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 
 import numpy as np
 
-EXTERNAL_DATASET_PATH = "updated_data.csv"
+EXTERNAL_DATASET_PATH = "../datasets/updated_data.csv"
 MODEL_NAME = "ibm/MoLFormer-XL-both-10pct"
 
 extra_data = pd.read_csv(EXTERNAL_DATASET_PATH)
@@ -48,7 +48,7 @@ def filtered_dataset(dataframe):
 
     filtered_df = dataframe[(influence_score >= lower_bound) & (influence_score <= upper_bound)]
 
-    filtered_df.to_csv("filtered_extrapoints.csv", index = False)
+    filtered_df.to_csv("../datasets/filtered_extrapoints.csv", index = False)
 
     return filtered_df
 
