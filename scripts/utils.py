@@ -1,6 +1,8 @@
 import torch
 from torch.utils.data import ConcatDataset
 
+import matplotlib.pyplot as plt
+
 import pandas as pd
 
 class SMILESDataset(torch.utils.data.Dataset):
@@ -41,5 +43,25 @@ class SMILESextra(torch.utils.data.Dataset):
     
 
 def merge_datasets(dataset1, dataset2):
-
     return ConcatDataset([dataset1, dataset2]) 
+
+
+def loss_fig(epoch_losses, val_losses, title, save_path):
+
+    plt.figure(figsize=(10, 6)) 
+    plt.plot(epoch_losses, label="Training Loss", marker='o', linestyle='-', color='blue') 
+    plt.plot(val_losses, label="Validation Loss", marker='s', linestyle='--', color='red')  
+
+    plt.title(title, fontsize=14, fontweight='bold')
+    plt.xlabel("Epoch", fontsize=12)
+    plt.ylabel("Loss", fontsize=12)
+
+    # plt.xticks(range(len(epoch_losses)))  
+
+    plt.legend(loc="upper right", fontsize=10)
+
+    plt.grid(alpha=0.3, linestyle='--')
+
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+
+    plt.show()
