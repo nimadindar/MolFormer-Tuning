@@ -1,8 +1,2 @@
-notebooks/finetuned_language_model.pth
-notebooks/finetuned_model.pth
-notebooks/regression_w_finetuning_wo_wdecay.pth
-notebooks/regression_wo_finetuning_wo_wdecay.pth
-notebooks/regression_wo_finetuning.pth
-scripts/finetuned_language_model.pth
-scripts/regression_w_finetuning_wo_wdecay.pth
+weights
 papers

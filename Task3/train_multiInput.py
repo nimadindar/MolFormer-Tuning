@@ -2,16 +2,16 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import random_split
 
-from models import MultiInputModel
-from mol_prop import calculate_descriptions
+from src.models import MultiInputModel
+from Task3.mol_prop import calculate_descriptions
 
 from datasets import load_dataset
 
-from utils import SMILESDataset, SMILESextra, merge_datasets, loss_fig
+from src.utils import SMILESDataset, SMILESextra, merge_datasets, loss_fig
 
 from transformers import AutoModel, AutoTokenizer
 
-from IA3 import IA3MolFormerMI
+from Task3.IA3 import IA3MolFormerMI
 
 from tqdm import tqdm
 

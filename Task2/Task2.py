@@ -8,9 +8,9 @@ from transformers import AutoTokenizer, AutoModelForMaskedLM
 
 from datasets import load_dataset
 
-from models import MoLFormerWithRegressionHeadMLM
+from src.models import MoLFormerWithRegressionHeadMLM
 
-from utils import SMILESextra, SMILESDataset, merge_datasets
+from src.utils import SMILESextra, SMILESDataset, merge_datasets
 
 from tqdm import tqdm
 

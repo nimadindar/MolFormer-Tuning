@@ -3,11 +3,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import random_split
 
-from models import MoLFormerWithRegressionHeadMLM
+from src.models import MoLFormerWithRegressionHeadMLM
 from transformers import AutoModel, AutoTokenizer
 
 from datasets import load_dataset
-from utils import SMILESDataset, SMILESextra, merge_datasets, loss_fig
+from src.utils import SMILESDataset, SMILESextra, merge_datasets, loss_fig
 
 from tqdm import tqdm
 
