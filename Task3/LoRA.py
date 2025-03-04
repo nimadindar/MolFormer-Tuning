@@ -1,19 +1,13 @@
 import torch
-import wandb
-import argparse
-import transformers
-from transformers import AutoModel, AutoTokenizer, Trainer, TrainingArguments, DataCollatorWithPadding
-from datasets import load_dataset
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.data import random_split, DataLoader
+from transformers import AutoModel, AutoTokenizer
+from datasets import load_dataset
+from tqdm import tqdm
 
-MODEL_NAME = "ibm/MoLFormer-XL-both-10pct"
-DATASET_PATH = "scikit-fingerprints/MoleculeNet_Lipophilicity"
-device = "cuda" if torch.cuda.is_available() else "cpu"
-
-def load_data():
-    dataset = load_dataset(DATASET_PATH, download_mode="force_redownload")
-    return dataset["train"].train_test_split(test_size=0.1)
+from src.models import MoLFormerWithRegressionHeadMLM
+from src.utils import SMILESDataset, SMILESextra, merge_datasets, loss_fig
 
 # Define LoRA layer
 class LoRALayer(nn.Module):
@@ -21,118 +15,129 @@ class LoRALayer(nn.Module):
         super().__init__()
         self.rank = rank
         self.alpha = alpha
+        
+        # Low-rank matrices A and B for LoRA adaptation
         self.A = nn.Parameter(torch.randn(out_features, rank) * 0.01)
         self.B = nn.Parameter(torch.randn(rank, in_features) * 0.01)
         self.scaling = self.alpha / self.rank
 
     def forward(self, x):
+        # Apply LoRA transformation: x + scaling * (x @ B^T @ A^T)
         return x + (self.scaling * (x @ self.B.T @ self.A.T))
 
-class MoLFormerWithLoRA(nn.Module):
-    def __init__(self, language_model, rank=8, alpha=16):
+# Define LoRA-enabled MoLFormer model
+class LoRAMoLFormer(nn.Module):
+    def __init__(self, model, rank=8, alpha=16):
         super().__init__()
-        self.language_model = language_model
+        self.model = model
+        
+        # Freeze all pretrained model parameters
+        for param in self.model.language_model.parameters():
+            param.requires_grad = False
 
-        # Collect target modules first
-        modules_to_replace = {}
-        for name, module in self.language_model.named_modules():
+        # Apply LoRA to attention layers (query and value projection layers)
+        for name, module in self.model.language_model.named_modules():
             if "query" in name or "value" in name:
-                modules_to_replace[name] = LoRALayer(module.in_features, module.out_features, rank, alpha)
+                parent_module = self.get_parent_module(name)
+                setattr(parent_module, name.split('.')[-1], LoRALayer(module.in_features, module.out_features, rank, alpha))
 
-        # Apply replacements after iteration
-        for name, new_module in modules_to_replace.items():
-            parent_module = self.get_parent_module(self.language_model, name)
-            setattr(parent_module, name.split('.')[-1], new_module)
+    def forward(self, token):
+        return self.model(token)
 
-        self.regression_head = nn.Sequential(
-            nn.Linear(768, 407),
-            nn.BatchNorm1d(407),
-            nn.ELU(),
-            nn.Dropout(0.38),
-            nn.Linear(407, 427),
-            nn.BatchNorm1d(427),
-            nn.ELU(),
-            nn.Dropout(0.27),
-            nn.Linear(427, 240),
-            nn.BatchNorm1d(240),
-            nn.ELU(),
-            nn.Dropout(0.46),
-            nn.Linear(240, 69),
-            nn.BatchNorm1d(69),
-            nn.ELU(),
-            nn.Dropout(0.44),
-            nn.Linear(69, 1)
-        )
-
-    def forward(self, input_ids, attention_mask, labels=None):
-        outputs = self.language_model(input_ids=input_ids, attention_mask=attention_mask)  
-        embeddings = outputs.last_hidden_state[:, 0, :].detach().float()
-        logits = self.regression_head(embeddings)
-
-        if labels is not None:
-            loss = F.mse_loss(logits.squeeze(), labels.float())
-            return {"loss": loss, "logits": logits}
-        return {"logits": logits}
-
-    def get_parent_module(self, model, module_name):
+    def get_parent_module(self, module_name):
         """Helper function to retrieve the parent module of a given submodule."""
         components = module_name.split(".")
-        parent = model
-        for comp in components[:-1]:  # Skip the last part (actual module name)
+        parent = self.model.language_model
+        for comp in components[:-1]:  # Traverse to the parent module
             parent = getattr(parent, comp)
         return parent
 
-
-def train_lora():
-    dataset = load_data()
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
-    language_model = AutoModel.from_pretrained(MODEL_NAME, trust_remote_code=True)
-    model = MoLFormerWithLoRA(language_model).to(device)
-
-    def tokenize_function(examples):
-        tokenized = tokenizer(examples["SMILES"], padding="max_length", truncation=True, max_length=512)
-        
-        if "label" not in examples or examples["label"] is None:
-            return None  # This ensures missing examples are skipped
-        
-        tokenized["labels"] = [float(label) if label is not None else 0.0 for label in examples["label"]]
-        return tokenized
-
-    tokenized_datasets = dataset.map(tokenize_function, batched=True, remove_columns=dataset["train"].column_names)
-    tokenized_datasets = tokenized_datasets.filter(lambda x: x is not None)  # Remove invalid samples
-    tokenized_datasets.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
-
-    training_args = TrainingArguments(
-        output_dir="./lora_model",
-        per_device_train_batch_size=4,  # Reduce batch size for better multi-GPU performance
-        num_train_epochs=3,
-        save_strategy="epoch",
-        logging_steps=100,  # Reduce logging frequency
-        fp16=True,
-        evaluation_strategy="epoch",
-        learning_rate=1e-4,
-        remove_unused_columns=False,
-    )
-
-    data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
-
-    wandb.init(project="MoleculeNet-FineTuning-LoRA")  # Move W&B before training
-    print(tokenized_datasets["train"][:5])  # Check first 5 samples
-
-    trainer = Trainer(
-        model=model,
-        args=training_args,
-        train_dataset=tokenized_datasets["train"],
-        eval_dataset=tokenized_datasets["test"],
-        data_collator=data_collator,
-    )
+# Training function
+def train_model(train_dataloader, test_dataloader, num_epochs):
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     
-    trainer.train()
+    MODEL_NAME = "ibm/MoLFormer-XL-both-10pct"
+    
+    # Load tokenizer and base model
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
+    raw_language_model = AutoModel.from_pretrained(MODEL_NAME, deterministic_eval=True, trust_remote_code=True)
+    
+    # Initialize MoLFormer with LoRA
+    model = MoLFormerWithRegressionHeadMLM(raw_language_model)
+    lora_model = LoRAMoLFormer(model).to(device)
+    
+    # Define optimizer and learning rate
+    lr = 0.020104429120603076
+    optimizer = torch.optim.Adam(lora_model.parameters(), lr=lr)
+    
+    epoch_losses = []
+    val_losses = []
 
-    wandb.log({"final_eval_loss": trainer.evaluate()["eval_loss"]})
-    print("LoRA fine-tuning completed.")
+    for epoch in range(num_epochs):
+        lora_model.train()
+        epoch_loss = 0
+        progress_bar = tqdm(train_dataloader, desc=f"Epoch {epoch + 1}/{num_epochs}", leave=False)
+
+        for smile, label in progress_bar:
+            label = label.to(device).float()
+            smiles_token = tokenizer(smile, padding=True, truncation=True, return_tensors="pt")
+            smiles_token = {k: v.to(device) for k, v in smiles_token.items()}
+            
+            optimizer.zero_grad()
+            output = lora_model(smiles_token).squeeze()
+            
+            loss = F.mse_loss(output, label)
+            loss.backward()
+            optimizer.step()
+            
+            epoch_loss += loss.item()
+            progress_bar.set_postfix(loss=loss.item())
+
+        avg_epoch_loss = epoch_loss / len(train_dataloader)
+        epoch_losses.append(avg_epoch_loss)
+        
+        # Validation loop
+        lora_model.eval()
+        val_loss = 0
+        with torch.no_grad():
+            for smile, label in test_dataloader:
+                label = label.to(device).float()
+                smiles_token = tokenizer(smile, padding=True, truncation=True, return_tensors="pt")
+                smiles_token = {k: v.to(device) for k, v in smiles_token.items()}
+                output = lora_model(smiles_token).squeeze()
+                loss = F.mse_loss(output, label)
+                val_loss += loss.item()
+        
+        avg_val_loss = val_loss / len(test_dataloader)
+        val_losses.append(avg_val_loss)
+        print(f"Epoch {epoch+1}/{num_epochs}, Train Loss: {avg_epoch_loss:.6f}, Validation Loss: {avg_val_loss:.6f}")
+    
+    return epoch_losses, val_losses
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    args = parser.parse_args()
-    train_lora()
+    # Load datasets
+    filtered_dataset = "F:/Saarland University Courses/Neural Networks/all files/Project/Project-GitHub-NimaB/NNTI_project/datasets/filtered_extrapoints.csv"
+    DATASET_PATH = "scikit-fingerprints/MoleculeNet_Lipophilicity"
+    dataset = load_dataset(DATASET_PATH)
+    
+    dataset_main = SMILESDataset(dataset)
+    dataset_extra = SMILESextra(filtered_dataset)
+    
+    # Merge main and extra datasets
+    merged_dataset = merge_datasets(dataset_main, dataset_extra)
+    train_size = int(0.8 * len(merged_dataset))
+    test_size = len(merged_dataset) - train_size
+    
+    train_smiles, test_smiles = random_split(merged_dataset, [train_size, test_size])
+    
+    # Prepare DataLoaders
+    train_dataloader = DataLoader(train_smiles, batch_size=16, shuffle=True)
+    test_dataloader = DataLoader(test_smiles, batch_size=16, shuffle=False)
+    
+    # Train the LoRA model
+    epoch_losses, test_losses = train_model(train_dataloader, test_dataloader, num_epochs=40)
+    
+    # Save the training and validation loss plot
+    loss_fig(epoch_losses, test_losses, 
+             "Training & Validation Loss Over Epochs for LoRA Method",
+             save_path='LoRA_val_vs_train_loss.png')
