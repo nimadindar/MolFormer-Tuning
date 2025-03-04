@@ -1,120 +1,131 @@
 import torch
-import wandb
-import argparse
-import transformers
-from transformers import AutoModel, AutoTokenizer, Trainer, TrainingArguments, DataCollatorWithPadding
-from datasets import load_dataset
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.data import random_split, DataLoader
 
-MODEL_NAME = "ibm/MoLFormer-XL-both-10pct"
-DATASET_PATH = "scikit-fingerprints/MoleculeNet_Lipophilicity"
-device = "cuda" if torch.cuda.is_available() else "cpu"
+from transformers import AutoModel, AutoTokenizer
+from datasets import load_dataset
+from tqdm import tqdm
 
-def load_data():
-    dataset = load_dataset(DATASET_PATH, download_mode="force_redownload")
-    return dataset["train"].train_test_split(test_size=0.1)
+from src.models import MoLFormerWithRegressionHeadMLM
+from src.utils import SMILESDataset, SMILESextra, merge_datasets, loss_fig
 
-def freeze_all_except_bias(model):
-    for name, param in model.named_parameters():
-        if "bias" in name:
-            param.requires_grad = True
-        else:
-            param.requires_grad = False
-
-class MoLFormerWithRegressionHead(nn.Module):
-    def __init__(self, language_model):
+class BitFitMoLFormer(nn.Module):
+    """
+    Wrapper model for BitFit, which freezes all parameters except for biases in the pre-trained model.
+    """
+    def __init__(self, model):
         super().__init__()
-        self.language_model = language_model
-        self.regression_head = nn.Sequential(
-            nn.Linear(768, 407),
-            nn.BatchNorm1d(407),
-            nn.ELU(),
-            nn.Dropout(0.38),
-            nn.Linear(407, 427),
-            nn.BatchNorm1d(427),
-            nn.ELU(),
-            nn.Dropout(0.27),
-            nn.Linear(427, 240),
-            nn.BatchNorm1d(240),
-            nn.ELU(),
-            nn.Dropout(0.46),
-            nn.Linear(240, 69),
-            nn.BatchNorm1d(69),
-            nn.ELU(),
-            nn.Dropout(0.44),
-            nn.Linear(69, 1)
-        )
+        self.model = model
+        
+        # Freeze all parameters except biases
+        for name, param in self.model.language_model.named_parameters():
+            if "bias" not in name:
+                param.requires_grad = False
+
+    def forward(self, token):
+        return self.model(token)
+
+
+def train_model(train_dataloader, test_dataloader, num_epochs):
+    """
+    Trains the BitFitMoLFormer model using Mean Squared Error (MSE) loss.
+    """
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     
-    def forward(self, input_ids, attention_mask, labels=None):  # Accept input_ids & attention_mask
-        outputs = self.language_model(input_ids=input_ids, attention_mask=attention_mask)  
-        embeddings = outputs.last_hidden_state[:, 0, :].detach().float()
-        logits = self.regression_head(embeddings)
-
-        if labels is not None:  # Compute loss inside forward pass
-            loss = F.mse_loss(logits.squeeze(), labels.float())
-            return {"loss": loss, "logits": logits}
-        return {"logits": logits}
-
-
-def train_bitfit():
-    dataset = load_data()
+    # Load tokenizer and base model
+    MODEL_NAME = "ibm/MoLFormer-XL-both-10pct"
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
-    language_model = AutoModel.from_pretrained(MODEL_NAME, trust_remote_code=True)
-    model = MoLFormerWithRegressionHead(language_model).to(device)
-    freeze_all_except_bias(model)
-
-    def tokenize_function(examples):
-        tokenized = tokenizer(examples["SMILES"], padding="max_length", truncation=True, max_length=512)
-
-        # Ensure no missing labels (replace None with 0.0 or filter them out)
-        if "label" not in examples or examples["label"] is None:
-            return None  # This ensures missing examples are skipped
-
-        tokenized["labels"] = [float(label) if label is not None else 0.0 for label in examples["label"]]
-        return tokenized
-
-
-
-    tokenized_datasets = dataset.map(tokenize_function, batched=True, remove_columns=dataset["train"].column_names)
-    tokenized_datasets = tokenized_datasets.filter(lambda x: x is not None)  # Remove invalid samples
-
-    # Correct set_format
-    tokenized_datasets.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
-
-
-
-    training_args = TrainingArguments(
-        output_dir="./bitfit_model",
-        per_device_train_batch_size=4,  # Reduce batch size for better multi-GPU performance
-        num_train_epochs=3,
-        save_strategy="epoch",
-        logging_steps=100,  # Reduce logging frequency
-        fp16=True,
-        evaluation_strategy="epoch",
-        learning_rate=1e-4,
-        remove_unused_columns=False,
-    )
-
-    data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
-
-    wandb.init(project="MoleculeNet-FineTuning-BitFit")  # Move W&B before training
-    print(tokenized_datasets["train"][:5])  # Check first 5 samples
-
-    trainer = Trainer(
-        model=model,
-        args=training_args,
-        train_dataset=tokenized_datasets["train"],
-        eval_dataset=tokenized_datasets["test"],
-        data_collator=data_collator,
-    )
+    raw_language_model = AutoModel.from_pretrained(MODEL_NAME, deterministic_eval=True, trust_remote_code=True)
     
-    trainer.train()
+    # Initialize model with regression head
+    model = MoLFormerWithRegressionHeadMLM(raw_language_model)
+    bitfit_model = BitFitMoLFormer(model).to(device)
+    
+    # Define optimizer with pre-selected learning rate
+    lr = 0.020104429120603076
+    optimizer = torch.optim.Adam(bitfit_model.parameters(), lr=lr)
+    
+    epoch_losses = []  # Track training losses
+    val_losses = []  # Track validation losses
 
-    wandb.log({"final_eval_loss": trainer.evaluate()["eval_loss"]})
-    print("BitFit fine-tuning completed.")
+    for epoch in range(num_epochs):
+        bitfit_model.train()
+        epoch_loss = 0
+        progress_bar = tqdm(train_dataloader, desc=f"Epoch {epoch + 1}/{num_epochs}", leave=False)
+
+        for smile, label in progress_bar:
+            label = label.to(device).float()
+            
+            # Tokenize SMILES strings
+            smiles_token = tokenizer(smile, padding=True, truncation=True, return_tensors="pt")
+            smiles_token = {k: v.to(device) for k, v in smiles_token.items()}
+            
+            # Forward pass
+            optimizer.zero_grad()
+            output = bitfit_model(smiles_token).squeeze()
+            
+            # Compute loss and backpropagate
+            loss = F.mse_loss(output, label)
+            loss.backward()
+            optimizer.step()
+            
+            epoch_loss += loss.item()
+            progress_bar.set_postfix(loss=loss.item())
+
+        # Compute average training loss
+        avg_epoch_loss = epoch_loss / len(train_dataloader)
+        epoch_losses.append(avg_epoch_loss)
+        
+        # Validation phase
+        bitfit_model.eval()
+        val_loss = 0
+        with torch.no_grad():
+            for smile, label in test_dataloader:
+                label = label.to(device).float()
+                smiles_token = tokenizer(smile, padding=True, truncation=True, return_tensors="pt")
+                smiles_token = {k: v.to(device) for k, v in smiles_token.items()}
+                output = bitfit_model(smiles_token).squeeze()
+                loss = F.mse_loss(output, label)
+                val_loss += loss.item()
+        
+        avg_val_loss = val_loss / len(test_dataloader)
+        val_losses.append(avg_val_loss)
+        print(f"Epoch {epoch+1}/{num_epochs}, Train Loss: {avg_epoch_loss:.6f}, Validation Loss: {avg_val_loss:.6f}")
+    
+    return epoch_losses, val_losses
+
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    args = parser.parse_args()
-    train_bitfit()
+    """
+    Main execution block:
+    - Loads datasets (main and external)
+    - Merges datasets and splits into training and testing sets
+    - Trains the BitFit model
+    - Saves the training and validation loss plot
+    """
+    filtered_dataset_path = "F:/Saarland University Courses/Neural Networks/all files/Project/Project-GitHub-NimaB/NNTI_project/datasets/filtered_extrapoints.csv"
+    DATASET_PATH = "scikit-fingerprints/MoleculeNet_Lipophilicity"
+    
+    # Load datasets
+    dataset = load_dataset(DATASET_PATH)
+    dataset_main = SMILESDataset(dataset)
+    dataset_extra = SMILESextra(filtered_dataset_path)
+    
+    # Merge main and extra datasets
+    merged_dataset = merge_datasets(dataset_main, dataset_extra)
+    
+    # Split into training and test sets (80% training, 20% testing)
+    train_size = int(0.8 * len(merged_dataset))
+    test_size = len(merged_dataset) - train_size
+    train_smiles, test_smiles = random_split(merged_dataset, [train_size, test_size])
+    
+    # Create data loaders
+    train_dataloader = DataLoader(train_smiles, batch_size=16, shuffle=True)
+    test_dataloader = DataLoader(test_smiles, batch_size=16, shuffle=True)
+    
+    # Train the model and visualize loss trends
+    epoch_losses, test_losses = train_model(train_dataloader, test_dataloader, num_epochs=40)
+    loss_fig(epoch_losses, test_losses, 
+             "Training & Validation Loss Over Epochs for BitFit Method",
+             save_path='BitFit_val_vs_train_loss.png')
