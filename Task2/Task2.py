@@ -58,13 +58,18 @@ if __name__ == "__main__":
         # depth = 50   
         # scale = 1 
 
+        # damp = 0.01  
+        # repeat = 3   
+        # depth = 15   
+        # scale = 1 
+
         damp = 0.01  
-        repeat = 1   
-        depth = 1   
+        repeat = 2   
+        depth = 2   
         scale = 1 
 
         # The pandas data frame is being passed as input since we want to alter this data frame and add a column.
-        influence_scores = compute_influence(extra_data, dataloader, tokenizer, model, damp, repeat, depth, scale)
+        compute_influence(extra_data, dataloader, tokenizer, model, damp, repeat, depth, scale)
     
     else:
 
