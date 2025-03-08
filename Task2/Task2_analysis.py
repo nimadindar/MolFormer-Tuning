@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 
 import numpy as np
 
-EXTERNAL_DATASET_PATH = "../datasets/updated_data.csv"
+EXTERNAL_DATASET_PATH = "../datasets/updated_data_w_influence_scores.csv"
 MODEL_NAME = "ibm/MoLFormer-XL-both-10pct"
 
 extra_data = pd.read_csv(EXTERNAL_DATASET_PATH)
@@ -37,20 +37,23 @@ def pad_tokens(tokens):
     return tokens
 
 def filtered_dataset(dataframe):
-
     _, influence_score = Extract_Influence_token(dataframe)
 
     mean = np.mean(influence_score)
     std = np.std(influence_score)
 
-    upper_bound = mean + std
-    lower_bound = mean - std
+    upper_bound = mean + 0.5 * std
+    lower_bound = mean - 0.5 * std
 
-    filtered_df = dataframe[(influence_score >= lower_bound) & (influence_score <= upper_bound)]
+    # Selecting outliers
+    outliers_df = dataframe[(influence_score < lower_bound) | (influence_score > upper_bound)]
+    outliers_df.to_csv("../datasets/Influence_selected_data.csv", index=False)
 
-    filtered_df.to_csv("../datasets/filtered_extrapoints.csv", index = False)
+    # Selecting filtered data
+    # filtered_df = dataframe[(influence_score >= lower_bound) & (influence_score <= upper_bound)]
+    # filtered_df.to_csv("../datasets/Influence_selected_data.csv", index=False)
 
-    return filtered_df
+    return outliers_df
 
 def plot_influence_scatter(influence_scores):
 
@@ -60,8 +63,8 @@ def plot_influence_scatter(influence_scores):
     plt.scatter(indices, influence_scores, color='b', alpha=0.6, label='Influence Score')
 
     plt.axhline(y= np.mean(influence_scores), color='r', linestyle='--', linewidth=1)  
-    plt.axhline(y= np.mean(influence_scores) + np.std(influence_scores), color='r', linestyle='--', linewidth=1)
-    plt.axhline(y= np.mean(influence_scores) - np.std(influence_scores), color='r', linestyle='--', linewidth=1)
+    plt.axhline(y= np.mean(influence_scores) + 0.5 * np.std(influence_scores), color='r', linestyle='--', linewidth=1)
+    plt.axhline(y= np.mean(influence_scores) - 0.5 * np.std(influence_scores), color='r', linestyle='--', linewidth=1)
     plt.xlabel('Data Point Index')
     plt.ylabel('Influence Score')
     plt.title('Influence Score Distribution')
@@ -71,3 +74,6 @@ def plot_influence_scatter(influence_scores):
     plt.savefig("influence_scatter_plot.png", dpi=300, bbox_inches='tight')
 
     plt.show()
+
+
+filtered_dataset(extra_data)

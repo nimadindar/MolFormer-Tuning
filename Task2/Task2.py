@@ -73,8 +73,11 @@ if __name__ == "__main__":
     
     else:
 
-        filtered_dataset(pd.read_csv("../datasets/updated_data_w_influence_scores.csv"))
-        filtered_dataset_path = "../datasets/filtered_extrapoints.csv"
+        # filtered_dataset(pd.read_csv("../datasets/updated_data_w_influence_scores.csv"))
+        filtered_dataset_path = "../datasets/Influence_selected_data.csv" # Influence dataset path
+        # filtered_dataset_path = "../datasets/Uncertainty_selected_data.csv" # uncertainty dataset path
+        # filtered_dataset_path = "../datasets/S2L_selected_data.csv" # S2L dataset path
+        model_name = "influence"
 
         dataset = load_dataset(DATASET_PATH)
 
@@ -91,9 +94,9 @@ if __name__ == "__main__":
         train_dataloader = torch.utils.data.DataLoader(train_smiles, batch_size=16, shuffle=True)
         test_dataloader = torch.utils.data.DataLoader(test_smiles, batch_size=16, shuffle = True)
 
-        epoch_losses, val_losses = train_model(model, tokenizer, train_dataloader, test_dataloader, num_epochs = 1)
+        epoch_losses, val_losses = train_model(model, tokenizer, train_dataloader, test_dataloader, num_epochs = 40, model_name=model_name)
 
         loss_fig(epoch_losses, val_losses,
-                title = "Train Loss vs. Validation Loss for Model trained on Extra Dataset", 
-                save_path = "task2.png")
+                title = "Train Loss vs. Validation Loss for Model trained on S2L Extra Dataset", 
+                save_path = f"task2_{model_name}.png")
 

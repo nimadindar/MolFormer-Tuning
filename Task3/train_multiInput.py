@@ -2,16 +2,18 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import random_split
 
-from src.models import MultiInputModel
-from Task3.mol_prop import calculate_descriptions
+from mol_prop import calculate_descriptions
 
 from datasets import load_dataset
 
-from src.utils import SMILESDataset, SMILESextra, merge_datasets, loss_fig
-
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from src.utils import SMILESextra, SMILESDataset, merge_datasets, loss_fig
+from src.models import MultiInputModel
 from transformers import AutoModel, AutoTokenizer
 
-from Task3.IA3 import IA3MolFormerMI
+from BitFit import BitFitMolFormerMI
 
 from tqdm import tqdm
 
@@ -28,17 +30,17 @@ def train_model(train_dataloader, test_dataloader, num_epochs):
 
     model = MultiInputModel(raw_language_model)
 
-    ia3_model = IA3MolFormerMI(model)
+    bitfit_model = BitFitMolFormerMI(model)
     
-    lr = 0.020104429120603076
+    lr = 0.001
 
-    optimizer = torch.optim.Adam(ia3_model.parameters(), lr=lr)
+    optimizer = torch.optim.Adam(bitfit_model.parameters(), lr=lr)
 
     epoch_losses = [] 
     val_losses = []  
 
     for epoch in range(num_epochs):
-        ia3_model.train()
+        bitfit_model.train()
         epoch_loss = 0
         progress_bar = tqdm(train_dataloader, desc= f"Epoch {epoch + 1}/{num_epochs}", leave=False)
 
@@ -53,7 +55,7 @@ def train_model(train_dataloader, test_dataloader, num_epochs):
             smiles_token = {k: v.to(device) for k, v in smiles_token.items()}
 
             optimizer.zero_grad()
-            output = ia3_model(smiles_token, feature_vectors).squeeze()
+            output = bitfit_model(smiles_token, feature_vectors).squeeze()
 
             loss = F.mse_loss(output, label)
             loss.backward()
@@ -65,7 +67,7 @@ def train_model(train_dataloader, test_dataloader, num_epochs):
         avg_epoch_loss = epoch_loss / len(train_dataloader)
         epoch_losses.append(avg_epoch_loss)
 
-        ia3_model.eval()
+        bitfit_model.eval()
         val_loss = 0
         with torch.no_grad():
             for smile, label in test_dataloader:
@@ -78,7 +80,7 @@ def train_model(train_dataloader, test_dataloader, num_epochs):
                 smiles_token = tokenizer(smile, padding=True, truncation=True, return_tensors="pt")
                 smiles_token = {k: v.to(device) for k, v in smiles_token.items()}
 
-                output = ia3_model(smiles_token, feature_vectors).squeeze()
+                output = bitfit_model(smiles_token, feature_vectors).squeeze()
 
                 loss = F.mse_loss(output, label)
                 val_loss += loss.item()
@@ -94,7 +96,7 @@ def train_model(train_dataloader, test_dataloader, num_epochs):
 
 
 
-filtered_dataset = "updated_data.csv"
+filtered_dataset = "../datasets/Uncertainty_selected_data.csv"
 DATASET_PATH = "scikit-fingerprints/MoleculeNet_Lipophilicity"
 
 dataset = load_dataset(DATASET_PATH)
@@ -112,8 +114,8 @@ train_smiles, test_smiles = random_split(merged_dataset, [train_size, test_size]
 train_dataloader = torch.utils.data.DataLoader(train_smiles, batch_size=16, shuffle=True)
 test_dataloader = torch.utils.data.DataLoader(test_smiles, batch_size=16, shuffle = True)
 
-epoch_losses, test_losses = train_model(train_dataloader, test_dataloader, 10)
+epoch_losses, test_losses = train_model(train_dataloader, test_dataloader, 40)
 loss_fig(epoch_losses, test_losses, 
-            "Training & Validation Loss Over Epochs for IA3 method with Multi Input Model",
-            save_path='IA3_multiInput_val_vs_train_loss.png')
+            "Training & Validation Loss Over Epochs for BitFit method with Multi Input Model",
+            save_path='BitFit_multiInput_val_vs_train_loss.png')
         

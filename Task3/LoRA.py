@@ -6,8 +6,11 @@ from transformers import AutoModel, AutoTokenizer
 from datasets import load_dataset
 from tqdm import tqdm
 
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from src.utils import SMILESextra, SMILESDataset, merge_datasets, loss_fig
 from src.models import MoLFormerWithRegressionHeadMLM
-from src.utils import SMILESDataset, SMILESextra, merge_datasets, loss_fig
 
 # Define LoRA layer
 class LoRALayer(nn.Module):
@@ -67,7 +70,7 @@ def train_model(train_dataloader, test_dataloader, num_epochs):
     lora_model = LoRAMoLFormer(model).to(device)
     
     # Define optimizer and learning rate
-    lr = 0.020104429120603076
+    lr = 0.01
     optimizer = torch.optim.Adam(lora_model.parameters(), lr=lr)
     
     epoch_losses = []
@@ -116,7 +119,7 @@ def train_model(train_dataloader, test_dataloader, num_epochs):
 
 if __name__ == "__main__":
     # Load datasets
-    filtered_dataset = "F:/Saarland University Courses/Neural Networks/all files/Project/Project-GitHub-NimaB/NNTI_project/datasets/filtered_extrapoints.csv"
+    filtered_dataset = "../datasets/Uncertainty_selected_data.csv"
     DATASET_PATH = "scikit-fingerprints/MoleculeNet_Lipophilicity"
     dataset = load_dataset(DATASET_PATH)
     

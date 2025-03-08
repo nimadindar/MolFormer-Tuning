@@ -3,11 +3,15 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import random_split
 
-from src.models import MoLFormerWithRegressionHeadMLM
 from transformers import AutoModel, AutoTokenizer
 
 from datasets import load_dataset
-from src.utils import SMILESDataset, SMILESextra, merge_datasets, loss_fig
+
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from src.utils import SMILESextra, SMILESDataset, merge_datasets, loss_fig
+from src.models import MoLFormerWithRegressionHeadMLM
 
 from tqdm import tqdm
 
@@ -69,6 +73,23 @@ class IA3MolFormerMI(nn.Module):
     def forward(self, token, feature_vector):
         return self.model(token, feature_vector)
 
+
+def unlikelihood_loss_regression(predictions, targets, margin=1.0):
+    errors = torch.abs(predictions - targets)
+    return torch.mean(torch.log(1 + errors / margin))  
+
+
+def length_normalized_loss_regression(predictions, targets):
+    errors = torch.abs(predictions - targets)
+    return torch.mean(errors / (torch.abs(targets) + 1e-8))  
+
+def combined_regression_loss(predictions, targets):
+    loss_mse = F.mse_loss(predictions, targets)
+    loss_ul = unlikelihood_loss_regression(predictions, targets)
+    loss_ln = length_normalized_loss_regression(predictions, targets)
+    
+    return loss_mse + loss_ul + loss_ln
+
 def train_model(train_dataloader, test_dataloader, num_epochs):
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -82,7 +103,7 @@ def train_model(train_dataloader, test_dataloader, num_epochs):
 
     ia3_model = IA3MolFormer(model)
     
-    lr = 0.020104429120603076
+    lr  = 0.001
 
     optimizer = torch.optim.Adam(ia3_model.parameters(), lr=lr)
 
@@ -143,7 +164,7 @@ def train_model(train_dataloader, test_dataloader, num_epochs):
 
 if __name__ == "__main__":
 
-        filtered_dataset = "updated_data.csv"
+        filtered_dataset = "../datasets/Uncertainty_selected_data.csv"
         DATASET_PATH = "scikit-fingerprints/MoleculeNet_Lipophilicity"
 
         dataset = load_dataset(DATASET_PATH)
@@ -161,7 +182,7 @@ if __name__ == "__main__":
         train_dataloader = torch.utils.data.DataLoader(train_smiles, batch_size=16, shuffle=True)
         test_dataloader = torch.utils.data.DataLoader(test_smiles, batch_size=16, shuffle = True)
 
-        epoch_losses, test_losses = train_model(train_dataloader, test_dataloader, 1)
+        epoch_losses, test_losses = train_model(train_dataloader, test_dataloader, 40)
         loss_fig(epoch_losses, test_losses, 
                  "Training & Validation Loss Over Epochs for IA3 method",
                  save_path='IA3_val_vs_train_loss.png')

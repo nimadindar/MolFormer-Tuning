@@ -7,8 +7,11 @@ from transformers import AutoModel, AutoTokenizer
 from datasets import load_dataset
 from tqdm import tqdm
 
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from src.utils import SMILESextra, SMILESDataset, merge_datasets, loss_fig
 from src.models import MoLFormerWithRegressionHeadMLM
-from src.utils import SMILESDataset, SMILESextra, merge_datasets, loss_fig
 
 class BitFitMoLFormer(nn.Module):
     """
@@ -25,6 +28,25 @@ class BitFitMoLFormer(nn.Module):
 
     def forward(self, token):
         return self.model(token)
+    
+class BitFitMolFormerMI(nn.Module):
+    """
+    Wrapper model for BitFit, which freezes all parameters except for biases in the pre-trained model.
+    This class is implemented for multi-input model which accepts tokens and feature vector as input for 
+    forward method.
+    """
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+        
+        # Freeze all parameters except biases
+        for name, param in self.model.language_model.named_parameters():
+            if "bias" not in name:
+                param.requires_grad = False
+
+    def forward(self, token, feature_vector):
+        return self.model(token, feature_vector)
+
 
 
 def train_model(train_dataloader, test_dataloader, num_epochs):
@@ -43,7 +65,7 @@ def train_model(train_dataloader, test_dataloader, num_epochs):
     bitfit_model = BitFitMoLFormer(model).to(device)
     
     # Define optimizer with pre-selected learning rate
-    lr = 0.020104429120603076
+    lr = 0.001 
     optimizer = torch.optim.Adam(bitfit_model.parameters(), lr=lr)
     
     epoch_losses = []  # Track training losses
@@ -104,7 +126,7 @@ if __name__ == "__main__":
     - Trains the BitFit model
     - Saves the training and validation loss plot
     """
-    filtered_dataset_path = "F:/Saarland University Courses/Neural Networks/all files/Project/Project-GitHub-NimaB/NNTI_project/datasets/filtered_extrapoints.csv"
+    filtered_dataset_path = "../datasets/Uncertainty_selected_data.csv"
     DATASET_PATH = "scikit-fingerprints/MoleculeNet_Lipophilicity"
     
     # Load datasets

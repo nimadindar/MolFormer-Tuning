@@ -5,7 +5,7 @@ from tqdm import tqdm
 
 
 
-def train_model(model, tokenizer, train_dataloader, test_dataloader, num_epochs):
+def train_model(model, tokenizer, train_dataloader, test_dataloader, num_epochs, model_name):
     """
     Trains a transformer-based model for regression using Mean Squared Error (MSE) loss.
 
@@ -86,6 +86,6 @@ def train_model(model, tokenizer, train_dataloader, test_dataloader, num_epochs)
         print(f"Epoch {epoch+1}/{num_epochs}, Train Loss: {avg_epoch_loss:.6f}, Validation Loss: {avg_val_loss:.6f}")
 
     # Save the trained model
-    torch.save(model, "../weights/regression_head_w_extra_data.pth")
+    torch.save(model, f"../weights/regression_head_w_extra_data_{model_name}.pth")
 
     return epoch_losses, val_losses

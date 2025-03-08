@@ -8,8 +8,8 @@ class MoLFormerWithRegressionHeadMLM(nn.Module):
 
         self.language_model = language_model
         
-        for param in self.language_model.parameters():
-            param.requires_grad = True
+        # for param in self.language_model.parameters():
+        #     param.requires_grad = False
 
         self.layer = nn.Sequential(
             # Layer 1

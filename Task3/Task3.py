@@ -1,5 +1,4 @@
 # import dependencies
-import wandb
 import torch 
 import datasets
 import argparse
