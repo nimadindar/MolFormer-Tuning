@@ -74,10 +74,11 @@ if __name__ == "__main__":
     else:
 
         # filtered_dataset(pd.read_csv("../datasets/updated_data_w_influence_scores.csv"))
-        filtered_dataset_path = "../datasets/Influence_selected_data.csv" # Influence dataset path
+        # filtered_dataset_path = "../datasets/Influence_selected_data.csv" # Influence dataset path
         # filtered_dataset_path = "../datasets/Uncertainty_selected_data.csv" # uncertainty dataset path
         # filtered_dataset_path = "../datasets/S2L_selected_data.csv" # S2L dataset path
-        model_name = "influence"
+        filtered_dataset_path = "../datasets/S2L_30_selected_data.csv"
+        model_name = "S2L-30"
 
         dataset = load_dataset(DATASET_PATH)
 
