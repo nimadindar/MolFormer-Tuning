@@ -47,7 +47,7 @@ python -m Task3.LoRA
 python -m Task3.IA3
 python -m Task3.train_multiInput
 ```
-Task2.train-model which is MLM with Regression Head is trained using all of the data selection methods. Uncertainty-based data selection has the best performance in this model. So BitFit, LoRa, and IA3 fine-tuning methods were traiimplemented using data selected by Uncertainty-based method.
+Task2.train-model which is MLM with Regression Head is trained using all of the data selection methods. Uncertainty-based data selection has the best performance in this model. So BitFit, LoRa, and IA3 fine-tuning methods were traiimplemented using data selected by Uncertainty-based method. The resulted loss curve for each method will be used in the same directory which the script is.
 
 ---
 
