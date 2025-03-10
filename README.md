@@ -1,73 +1,79 @@
-# MolFormer-Tuning
+# MolFormer-Tuning 
 
+## 🚀 Project Title: **Fine-Tuning and Data Selection for Lipophilicity Prediction Using MoLFormer**  
 
-A project focused on tuning **MoLFormer** model using external datasets, data selection methids, and advanced fine-tuning techniques.
+### 📌 **About**  
+This project explores the impact of different **data selection strategies** and **fine-tuning techniques** on lipophilicity prediction using **MoLFormer**, a transformer-based chemical language model. The goal is to enhance model performance by selecting the most informative molecular samples and optimizing the learning process.  
 
-## Overview
-This repository explores different strategies for improving **MoLFormer-XL**'s performance on the **MoleculeNet Lipophilicity dataset**. The project includes:
-- **Influence Functions with LiSSA Approximation** to select high-impact external data points.
-- **Alternative Data Selection Methods** to optimize training.
-- **Fine-tuning Techniques** such as BitFit, LoRA, and iA3.
-
-## Repository Structure
+### 📂 **Project Structure**  
 ```
-MolFormer-Tuning/
-│── data/                    # Dataset and preprocessing scripts
-│── models/                  # Pretrained and fine-tuned models
-│── notebooks/               # Jupyter notebooks for experiments
-│── src/                     # Core source code for training & evaluation
-│── results/                 # Logs, metrics, and analysis outputs
-│── requirements.txt         # Required dependencies
-│── README.md                # Project documentation
+📦 MolFormer-Tuning 
+ ┣ 📂 datasets/                # External dataset and selected data using different data selection methods
+ ┣ 📂 notebooks/               # Jupyter notebook for Task1
+ ┣ 📂 reports/                 # Final project report
+ ┣ 📂 src/                     # Models and utils used in tasks
+ ┣ 📂 Task2/                   # Scripts and results for Task2
+ ┣ 📂 Task3/                   # Scripts and results for Task3
+ ┣ 📝 requirements.txt         # List of dependencies  
+ ┣ 📝 README.md                # Project documentation (this file)  
+
 ```
 
-## Installation
-### 1. Clone the Repository
-```bash
-git clone https://github.com/nimadindar/MolFormer-Tuning.git
-cd MolFormer-Tuning
-```
+---
 
-### 2. Create and Activate Virtual Environment
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows use: venv\Scripts\activate
-```
-
-### 3. Install Dependencies
+## 🛠 **Setup & Installation**  
+### **1️⃣ Install Dependencies**  
+Before running the project, install the required Python libraries: (Python Version =3.12)  
 ```bash
 pip install -r requirements.txt
 ```
 
-## Usage
-### Running the Model Training
+
+### **2️⃣ Run Data Selection Experiments**  
+To perform data selection using different strategies (**Influence Functions, Uncertainty-Based, S2L**), use:  
 ```bash
-python src/train.py --config configs/config.yaml
+python -m Task2.Influence-lissa 
+python -m Task3.Uncertainty-DS
+python -m Task3.S2L-DS
 ```
+The resulted selected data will be saved to 📂 datasets/ .
 
-### Running Influence Function Analysis
+### **3️⃣ Train & Fine-Tune the Model**  
+To train MoLFormer with the selected data using different fine-tuning techniques:  
 ```bash
-python src/influence_analysis.py --data data/External-Dataset_for_Task2.csv
+python -m Task2.train-model
+python -m Task3.BitFit
+python -m Task3.LoRA
+python -m Task3.IA3
+python -m Task3.train_multiInput
 ```
+Task2.train-model which is MLM with Regression Head is trained using all of the data selection methods. Uncertainty-based data selection has the best performance in this model. So BitFit, LoRa, and IA3 fine-tuning methods were traiimplemented using data selected by Uncertainty-based method.
 
-### Fine-tuning the Model
-```bash
-python src/fine_tune.py --method LoRA
-```
+---
 
-## Results
-Key findings and results are stored in the `results/` directory. Notable metrics and insights will be documented here.
+## 🧪 **Experiments & Findings**  
+- **Data Selection Strategies Evaluated**:  
+  - **Uncertainty-Based Selection (Best Performance ✅)**  
+  - **Small-to-Large (S2L) Selection**  
+  - **Influence Functions**  
+- **Fine-Tuning Methods Compared**:  
+  - **Masked Language Modeling (MLM)**  
+  - **BitFit (Best Performance ✅)**  
+  - **LoRA**  
+  - **(IA)³**  
+- **Key Findings**:  
+  - **Uncertainty-Based Selection outperformed other strategies**, improving generalization by prioritizing underrepresented molecular samples.  
+  - **BitFit fine-tuning** led to significant performance improvements over baseline methods.  
+  - A **multi-input model** integrating **domain knowledge (RDKit descriptors)** was explored for further performance enhancement.  
 
-## Contribution
-We welcome contributions! Please follow these steps:
-1. Fork the repository.
-2. Create a new branch: `git checkout -b feature-name`
-3. Commit your changes: `git commit -m 'Add new feature'`
-4. Push to the branch: `git push origin feature-name`
-5. Submit a pull request.
+---
 
-## Contact
-For questions or collaborations, please reach out via GitHub issues or email: **your-email@example.com**
+## 🤝 **Contributors**  
+- **Nima DindarSafa** (*Saarland University*)  
+- **Samira Abeidni**  (*Saarland University*)
 
-## License
-This project is licensed under the MIT License. See `LICENSE` for details.
+---
+
+## 📧 **Contact**  
+For any questions or issues, feel free to reach out at:  
+📩 Email: {nidi00002, saab00012}@stud.uni-saarland.de
